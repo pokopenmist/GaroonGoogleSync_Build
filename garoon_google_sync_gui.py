@@ -305,7 +305,8 @@ class GaroonClient:
             url,
             headers=self.headers,
             params=params,
-            verify=False
+            verify=False,
+            timeout=30
         )
         
         if response.status_code == 200:
@@ -314,21 +315,21 @@ class GaroonClient:
     
     def create_event(self, event_data: Dict) -> Optional[Dict]:
         url = f"{self.base_url}/schedule/events"
-        response = requests.post(url, headers=self.headers, json=event_data, verify=False)
+        response = requests.post(url, headers=self.headers, json=event_data, verify=False, timeout=30)
         if response.status_code in [200, 201]:
             return response.json()
         return None
     
     def update_event(self, event_id: str, event_data: Dict) -> Optional[Dict]:
         url = f"{self.base_url}/schedule/events/{event_id}"
-        response = requests.patch(url, headers=self.headers, json=event_data, verify=False)
+        response = requests.patch(url, headers=self.headers, json=event_data, verify=False, timeout=30)
         if response.status_code in [200, 201]:
             return response.json()
         return None
     
     def delete_event(self, event_id: str) -> bool:
         url = f"{self.base_url}/schedule/events/{event_id}"
-        response = requests.delete(url, headers=self.headers, verify=False)
+        response = requests.delete(url, headers=self.headers, verify=False, timeout=30)
         return response.status_code in [200, 204]
 
 
@@ -487,7 +488,7 @@ class EventConverter:
                     is_pseudo_all_day = True
                     if log_func:
                         log_func(f"    → 00:00-{end_time}を終日イベントとして処理")
-            except:
+            except Exception:
                 pass
         
         if is_all_day or is_pseudo_all_day:
@@ -669,57 +670,6 @@ class EventConverter:
         return None
     
     @staticmethod
-    def google_to_garoon(google_event: Dict, garoon_username: str) -> Dict:
-        """GoogleイベントをGaroon形式に変換（期間予定として登録）"""
-        import re
-        
-        summary = google_event.get("summary", "（件名なし）")
-        description = google_event.get("description", "")
-        
-        if description.startswith("[Googleから同期]"):
-            description = description.replace("[Googleから同期]\n", "").strip()
-        if description.startswith("[Garoonから同期]"):
-            description = description.replace("[Garoonから同期]\n", "").strip()
-        
-        event_menu = ""
-        subject = summary
-        
-        match = re.match(r'^\[([^\]]+)\]\s*(.*)', summary)
-        if match:
-            event_menu = match.group(1)
-            subject = match.group(2).strip()
-        
-        start = google_event.get("start", {})
-        end = google_event.get("end", {})
-        
-        garoon_event = {
-            "eventType": "REGULAR",
-            "subject": subject,
-            "notes": f"[Googleから同期]\n{description}",
-            "attendees": [{"type": "USER", "code": garoon_username}],
-        }
-        
-        if event_menu:
-            garoon_event["eventMenu"] = event_menu
-        
-        if "date" in start:
-            # Googleの終日イベント → Garoonの期間予定（帯状表示）
-            garoon_event["isAllDay"] = True
-            garoon_event["start"] = {"dateTime": f"{start['date']}T00:00:00+09:00", "timeZone": "Asia/Tokyo"}
-            
-            # Googleの終了日は翌日なので1日引く
-            end_date = end.get("date", start["date"])
-            end_date_obj = datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=1)
-            # Garoonの期間予定は終了日の23:59:59
-            garoon_event["end"] = {"dateTime": f"{end_date_obj.strftime('%Y-%m-%d')}T23:59:59+09:00", "timeZone": "Asia/Tokyo"}
-        else:
-            garoon_event["isAllDay"] = False
-            garoon_event["start"] = {"dateTime": start.get("dateTime"), "timeZone": "Asia/Tokyo"}
-            garoon_event["end"] = {"dateTime": end.get("dateTime"), "timeZone": "Asia/Tokyo"}
-        
-        return garoon_event
-    
-    @staticmethod
     def _get_garoon_title(garoon_event: Dict) -> str:
         subject = (garoon_event.get("subject") or "").strip()
         event_menu = (garoon_event.get("eventMenu") or "").strip()
@@ -805,14 +755,16 @@ class GaroonToGoogleSync:
                 self.log(f"  🗑 削除: [{event_date}] {google_event.get('summary', '?')}")
                 if self.google.delete_event(google_id):
                     self.db.mark_deleted(garoon_id=garoon_id)
+                    deleted_garoon_ids.add(garoon_id)
                     self.stats['google_deleted'] += 1
                 else:
                     self.stats['errors'] += 1
-            
+
             elif not garoon_exists and not google_exists:
                 # 両方で削除済み → マッピング削除
                 self.db.mark_deleted(garoon_id=garoon_id)
-        
+                deleted_garoon_ids.add(garoon_id)
+
         return deleted_garoon_ids
     
     def _process_garoon_events(self, garoon_events, google_by_id, deleted_garoon_ids):
@@ -907,7 +859,7 @@ class GaroonToGoogleSync:
             t1 = datetime.fromisoformat(dt1.replace("Z", "+00:00"))
             t2 = datetime.fromisoformat(dt2.replace("Z", "+00:00"))
             return t1 > t2
-        except:
+        except Exception:
             return False
     
     def _get_event_date(self, event_data: dict) -> str:
@@ -924,7 +876,7 @@ class GaroonToGoogleSync:
                 if 'T' in dt_str:
                     return dt_str.split('T')[0]
                 return dt_str[:10]
-        except:
+        except Exception:
             pass
         return "?"
 
@@ -952,7 +904,8 @@ class SyncApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Garoon → Google Calendar 同期ツール")
-        self.root.geometry("650x950")
+        self.root.geometry("650x900")
+        self.root.minsize(600, 700)
         self.root.resizable(True, True)
         self.root.configure(bg=self.COLORS['bg_dark'])
         
@@ -972,65 +925,73 @@ class SyncApp:
     def _setup_styles(self):
         """カスタムスタイルを設定"""
         style = ttk.Style()
-        
+
         # テーマ設定
         style.theme_use('clam')
-        
+
+        # 日本語UIフォントのフォールバック（Windows環境によって異なる）
+        from tkinter import font as tkfont
+        _available = tkfont.families()
+        ui_font = next(
+            (f for f in ('Yu Gothic UI', 'Meiryo UI', 'Meiryo', 'MS UI Gothic') if f in _available),
+            'TkDefaultFont'
+        )
+
         # フレームスタイル
         style.configure('Card.TFrame', background=self.COLORS['frame_bg'])
         style.configure('Dark.TFrame', background=self.COLORS['bg_dark'])
-        
+
         # ラベルスタイル
-        style.configure('Card.TLabel', 
+        style.configure('Card.TLabel',
                        background=self.COLORS['frame_bg'],
                        foreground=self.COLORS['text_dark'],
-                       font=('Yu Gothic UI', 10))
-        
+                       font=(ui_font, 10))
+
         style.configure('Header.TLabel',
                        background=self.COLORS['frame_bg'],
                        foreground=self.COLORS['accent'],
-                       font=('Yu Gothic UI', 11, 'bold'))
-        
+                       font=(ui_font, 11, 'bold'))
+
         style.configure('Title.TLabel',
                        background=self.COLORS['bg_dark'],
                        foreground=self.COLORS['text_light'],
-                       font=('Yu Gothic UI', 16, 'bold'))
-        
+                       font=(ui_font, 16, 'bold'))
+
         style.configure('Status.TLabel',
                        background=self.COLORS['frame_bg'],
-                       font=('Yu Gothic UI', 10, 'bold'))
-        
+                       font=(ui_font, 10, 'bold'))
+
         # ボタンスタイル
         style.configure('Accent.TButton',
                        background=self.COLORS['accent'],
                        foreground='white',
-                       font=('Yu Gothic UI', 10, 'bold'),
+                       font=(ui_font, 10, 'bold'),
                        padding=(15, 8))
         style.map('Accent.TButton',
                  background=[('active', self.COLORS['accent_hover'])])
-        
+
         style.configure('Success.TButton',
                        background=self.COLORS['success'],
                        foreground='white',
-                       font=('Yu Gothic UI', 11, 'bold'),
+                       font=(ui_font, 11, 'bold'),
                        padding=(20, 10))
         style.map('Success.TButton',
                  background=[('active', '#229954')])
-        
+
         style.configure('Danger.TButton',
                        background=self.COLORS['danger'],
                        foreground='white',
-                       font=('Yu Gothic UI', 10),
+                       font=(ui_font, 10),
                        padding=(10, 5))
         style.map('Danger.TButton',
                  background=[('active', '#C0392B')])
-        
+
         style.configure('Secondary.TButton',
                        background='#95A5A6',
                        foreground='white',
-                       font=('Yu Gothic UI', 10),
+                       font=(ui_font, 10),
                        padding=(10, 5))
-        
+
         # LabelFrameスタイル
         style.configure('Card.TLabelframe',
                        background=self.COLORS['frame_bg'],
@@ -1038,18 +999,18 @@ class SyncApp:
         style.configure('Card.TLabelframe.Label',
                        background=self.COLORS['frame_bg'],
                        foreground=self.COLORS['accent'],
-                       font=('Yu Gothic UI', 11, 'bold'))
-        
+                       font=(ui_font, 11, 'bold'))
+
         # エントリースタイル
         style.configure('TEntry',
                        fieldbackground=self.COLORS['input_bg'],
-                       font=('Yu Gothic UI', 10))
-        
+                       font=(ui_font, 10))
+
         # チェックボタンスタイル
         style.configure('Card.TCheckbutton',
                        background=self.COLORS['frame_bg'],
                        foreground=self.COLORS['text_dark'],
-                       font=('Yu Gothic UI', 9))
+                       font=(ui_font, 9))
     
     def _create_widgets(self):
         # メインコンテナ
@@ -1215,7 +1176,7 @@ class SyncApp:
             height = self.paned.winfo_height()
             if height > 1:
                 self.paned.sash_place(0, 0, int(height * 0.55))
-        except:
+        except Exception:
             pass
     
     def _load_config_to_ui(self):
@@ -1290,12 +1251,17 @@ class SyncApp:
         messagebox.showinfo("保存完了", "設定を保存しました")
     
     def _log(self, message: str):
-        """ログを追加"""
+        """ログを追加（スレッドセーフ）"""
+        if threading.current_thread() is threading.main_thread():
+            self._append_log(message)
+        else:
+            self.root.after(0, self._append_log, message)
+
+    def _append_log(self, message: str):
         self.log_text.config(state=tk.NORMAL)
         self.log_text.insert(tk.END, message + "\n")
         self.log_text.see(tk.END)
         self.log_text.config(state=tk.DISABLED)
-        self.root.update()
     
     def _clear_log(self):
         """ログをクリア"""
@@ -1414,34 +1380,33 @@ class SyncApp:
     
     def _sync_thread(self, past_days: int, future_days: int):
         """同期処理（別スレッド）"""
+        db = None
         try:
             # 日付範囲を計算
             today = datetime.now().date()
             start_date = (today - timedelta(days=past_days)).strftime("%Y-%m-%d")
             end_date = (today + timedelta(days=future_days)).strftime("%Y-%m-%d")
-            
+
             self._log("=" * 50)
             self._log("🚀 同期開始")
             self._log(f"📅 期間: {start_date} ～ {end_date}")
             self._log("=" * 50)
-            
+
             # クライアント初期化
             garoon = GaroonClient(
                 GAROON_SUBDOMAIN,
                 self.username_var.get(),
                 self.password_var.get()
             )
-            
+
             google = GoogleCalendarClient(self.calendar_var.get())
-            
+
             db = SyncDatabase(DB_FILE)
-            
+
             # 同期実行
             sync_engine = GaroonToGoogleSync(garoon, google, db, self._log)
             stats = sync_engine.sync(start_date, end_date)
-            
-            db.close()
-            
+
             # 結果表示
             self._log("\n" + "=" * 50)
             self._log("🎉 【完了】")
@@ -1451,14 +1416,16 @@ class SyncApp:
             if stats['errors'] > 0:
                 self._log(f"  ⚠️ エラー: {stats['errors']}件")
             self._log("=" * 50)
-            
+
             self.root.after(0, lambda: messagebox.showinfo("完了", "同期が完了しました"))
-            
+
         except Exception as e:
             self._log(f"\n❌ エラー: {e}")
             self.root.after(0, lambda: messagebox.showerror("エラー", str(e)))
-        
+
         finally:
+            if db:
+                db.close()
             self.is_syncing = False
             self.root.after(0, lambda: self.sync_button.config(state=tk.NORMAL))
     
@@ -1486,6 +1453,16 @@ def main():
         # 自動同期モード（GUIなし）
         run_auto_sync(silent=args.silent)
     else:
+        # 高DPI対応（4K/2K環境でのにじみ防止）
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
         # 通常GUIモード
         root = tk.Tk()
         app = SyncApp(root)
@@ -1495,7 +1472,7 @@ def main():
 def run_auto_sync(silent=False):
     """自動同期モード（タスクスケジューラ用）"""
     log_file = os.path.join(APP_DIR, "sync_log.txt")
-    
+
     def log(message):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_line = f"[{timestamp}] {message}"
@@ -1503,51 +1480,50 @@ def run_auto_sync(silent=False):
             print(log_line)
         with open(log_file, "a", encoding="utf-8") as f:
             f.write(log_line + "\n")
-    
+
+    db = None
     try:
         log("=" * 50)
         log("🚀 自動同期開始")
-        
+
         # 設定を読み込み
         config_manager = ConfigManager(CONFIG_FILE)
         config = config_manager.load()
-        
+
         username = config.get("garoon_username", "")
         password = config.get("garoon_password", "")
-        calendar_name = config.get("calendar_name", "")  # GUIと同じキー名
+        calendar_name = config.get("calendar_name", "")
         past_days = config.get("past_days", 7)
         future_days = config.get("future_days", 90)
-        
+
         if not username or not password:
             log("❌ エラー: Garoon設定がありません。GUIで設定を保存してください。")
             return 1
-        
+
         if not calendar_name:
             log("❌ エラー: Googleカレンダーが設定されていません。GUIで設定を保存してください。")
             return 1
-        
+
         if not os.path.exists(TOKEN_FILE):
             log("❌ エラー: Google認証がされていません。GUIで認証してください。")
             return 1
-        
+
         # 日付範囲を計算
         today = datetime.now().date()
         start_date = (today - timedelta(days=past_days)).strftime("%Y-%m-%d")
         end_date = (today + timedelta(days=future_days)).strftime("%Y-%m-%d")
-        
+
         log(f"📅 期間: {start_date} ～ {end_date}")
-        
+
         # クライアント初期化
         garoon = GaroonClient(GAROON_SUBDOMAIN, username, password)
         google = GoogleCalendarClient(calendar_name)
         db = SyncDatabase(DB_FILE)
-        
+
         # 同期実行
         sync_engine = GaroonToGoogleSync(garoon, google, db, log)
         stats = sync_engine.sync(start_date, end_date)
-        
-        db.close()
-        
+
         # 結果表示
         log("=" * 50)
         log("🎉 【完了】")
@@ -1557,12 +1533,16 @@ def run_auto_sync(silent=False):
         if stats['errors'] > 0:
             log(f"  ⚠️ エラー: {stats['errors']}件")
         log("=" * 50)
-        
+
         return 0
-        
+
     except Exception as e:
         log(f"❌ エラー: {e}")
         return 1
+
+    finally:
+        if db:
+            db.close()
 
 
 if __name__ == "__main__":
