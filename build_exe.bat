@@ -31,12 +31,12 @@ pip install python-dateutil
 pip install pyinstaller
 
 echo.
-echo Step 4: Building EXE...
-pyinstaller --onefile --noconsole --name GaroonGoogleSync garoon_google_sync_gui.py
+echo Step 4: Building EXE (onedir / UPX disabled)...
+pyinstaller GaroonGoogleSync.spec
 
 echo.
 echo Step 5: Checking build result...
-if not exist "dist\GaroonGoogleSync.exe" (
+if not exist "dist\GaroonGoogleSync\GaroonGoogleSync.exe" (
     echo.
     echo ========================================
     echo ERROR: Build failed!
@@ -49,11 +49,21 @@ if not exist "dist\GaroonGoogleSync.exe" (
 )
 
 echo.
-echo Step 6: Creating dist_package folder...
-if not exist dist_package mkdir dist_package
-copy /Y dist\GaroonGoogleSync.exe dist_package\
-if exist README_*.txt copy /Y README_*.txt dist_package\README.txt
-if exist *.txt copy /Y タスクスケジューラ設定.txt dist_package\ 2>nul
+echo Step 6: Creating release package (ZIP)...
+if exist release rmdir /s /q release
+mkdir release\GaroonGoogleSync
+
+xcopy /E /Y dist\GaroonGoogleSync\* release\GaroonGoogleSync\
+if exist README_*.txt (
+    copy /Y README_*.txt release\GaroonGoogleSync\README.txt
+)
+if exist タスクスケジューラ設定.txt (
+    copy /Y タスクスケジューラ設定.txt release\GaroonGoogleSync\
+)
+
+cd release
+python -c "import zipfile, os; z = zipfile.ZipFile('GaroonGoogleSync.zip', 'w', zipfile.ZIP_DEFLATED); [z.write(os.path.join(r,f), os.path.join(r,f)) for r,_,fs in os.walk('GaroonGoogleSync') for f in fs]; z.close(); print('ZIP created:', os.path.getsize('GaroonGoogleSync.zip'), 'bytes')"
+cd ..
 
 call deactivate
 
@@ -62,10 +72,11 @@ echo ========================================
 echo BUILD COMPLETE
 echo ========================================
 echo.
-echo Output: dist_package\GaroonGoogleSync.exe
+echo Output: release\GaroonGoogleSync.zip
 echo.
-dir dist_package
+dir release\GaroonGoogleSync.zip
 echo.
-echo Add credentials.json to dist_package folder.
+echo Next: Upload release\GaroonGoogleSync.zip to GitHub Releases.
+echo Users should place credentials.json inside the extracted folder.
 echo.
 pause
