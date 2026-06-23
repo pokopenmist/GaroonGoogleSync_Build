@@ -9,7 +9,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['googleapiclient', 'httplib2', 'google.api_core'],
     noarchive=False,
     optimize=0,
 )

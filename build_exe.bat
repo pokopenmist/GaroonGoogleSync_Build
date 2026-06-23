@@ -24,8 +24,6 @@ python -m pip install --upgrade pip
 echo.
 echo Step 3: Installing required libraries...
 pip install requests
-pip install google-api-python-client
-pip install google-auth-httplib2
 pip install google-auth-oauthlib
 pip install python-dateutil
 pip install pyinstaller

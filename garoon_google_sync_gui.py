@@ -22,13 +22,13 @@ import base64
 import sqlite3
 import pickle
 import urllib3
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Optional, Dict, List, Any
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 
 # SSL証明書検証エラーの警告を抑制（社内プロキシ対応）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -337,20 +337,23 @@ class GaroonClient:
 # Google Calendarクライアント
 # ============================================
 class GoogleCalendarClient:
-    
+    """google-api-python-client を使わず requests で直接 Calendar API v3 を呼び出す。
+    これにより googleapiclient の 70MB+ の同梱を排除できる。"""
+
+    _BASE = "https://www.googleapis.com/calendar/v3"
+
     def __init__(self, calendar_name: str):
-        self.service = self._get_service()
+        self.creds = self._get_credentials()
         self.calendar_id = self._get_calendar_id(calendar_name)
         if not self.calendar_id:
             raise ValueError(f"カレンダー '{calendar_name}' が見つかりません")
-    
-    def _get_service(self):
+
+    def _get_credentials(self):
         creds = None
-        
         if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE, 'rb') as token:
-                creds = pickle.load(token)
-        
+            with open(TOKEN_FILE, 'rb') as f:
+                creds = pickle.load(f)
+
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
@@ -359,82 +362,106 @@ class GoogleCalendarClient:
                     if os.path.exists(TOKEN_FILE):
                         os.remove(TOKEN_FILE)
                     creds = None
-            
+
             if not creds:
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
                 creds = flow.run_local_server(port=0)
-            
-            with open(TOKEN_FILE, 'wb') as token:
-                pickle.dump(creds, token)
-        
-        return build('calendar', 'v3', credentials=creds)
-    
+
+            with open(TOKEN_FILE, 'wb') as f:
+                pickle.dump(creds, f)
+
+        return creds
+
+    def _headers(self) -> Dict:
+        if self.creds.expired and self.creds.refresh_token:
+            self.creds.refresh(Request())
+            with open(TOKEN_FILE, 'wb') as f:
+                pickle.dump(self.creds, f)
+        return {"Authorization": f"Bearer {self.creds.token}"}
+
+    def _event_path(self, event_id: str = None) -> str:
+        cal = urllib.parse.quote(self.calendar_id, safe='')
+        base = f"/calendars/{cal}/events"
+        if event_id:
+            return f"{base}/{urllib.parse.quote(event_id, safe='')}"
+        return base
+
     def _get_calendar_id(self, calendar_name: str) -> Optional[str]:
-        calendars = self.service.calendarList().list().execute()
-        for cal in calendars.get('items', []):
+        resp = requests.get(
+            f"{self._BASE}/users/me/calendarList",
+            headers=self._headers(), timeout=30
+        )
+        resp.raise_for_status()
+        for cal in resp.json().get('items', []):
             if cal['summary'] == calendar_name:
                 return cal['id']
         return None
-    
+
     def get_calendar_list(self) -> List[str]:
-        """利用可能なカレンダー一覧を取得"""
-        calendars = self.service.calendarList().list().execute()
-        return [cal['summary'] for cal in calendars.get('items', [])]
-    
+        resp = requests.get(
+            f"{self._BASE}/users/me/calendarList",
+            headers=self._headers(), timeout=30
+        )
+        resp.raise_for_status()
+        return [cal['summary'] for cal in resp.json().get('items', [])]
+
     def get_events(self, start_date: str, end_date: str) -> List[Dict]:
         time_min = f"{start_date}T00:00:00+09:00"
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
-        end_date_next = (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
-        time_max = f"{end_date_next}T00:00:00+09:00"
-        
+        time_max = f"{(end_date_obj + timedelta(days=1)).strftime('%Y-%m-%d')}T00:00:00+09:00"
+
         all_events = []
-        page_token = None
-        
+        params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "false",  # 繰り返しイベントのマスターも取得
+        }
+
         while True:
-            # singleEvents=False で繰り返しイベントのマスターも取得
-            result = self.service.events().list(
-                calendarId=self.calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=False,
-                pageToken=page_token
-            ).execute()
-            
+            resp = requests.get(
+                f"{self._BASE}{self._event_path()}",
+                headers=self._headers(), params=params, timeout=30
+            )
+            resp.raise_for_status()
+            result = resp.json()
             all_events.extend(result.get('items', []))
-            
             page_token = result.get('nextPageToken')
             if not page_token:
                 break
-        
+            params["pageToken"] = page_token
+
         return all_events
-    
+
     def create_event(self, event_data: Dict) -> Optional[Dict]:
         try:
-            return self.service.events().insert(
-                calendarId=self.calendar_id,
-                body=event_data
-            ).execute()
+            resp = requests.post(
+                f"{self._BASE}{self._event_path()}",
+                headers=self._headers(), json=event_data, timeout=30
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
             print(f"Google Calendar API エラー: {e}")
             return None
-    
+
     def update_event(self, event_id: str, event_data: Dict) -> Optional[Dict]:
         try:
-            return self.service.events().update(
-                calendarId=self.calendar_id,
-                eventId=event_id,
-                body=event_data
-            ).execute()
+            resp = requests.put(
+                f"{self._BASE}{self._event_path(event_id)}",
+                headers=self._headers(), json=event_data, timeout=30
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception:
             return None
-    
+
     def delete_event(self, event_id: str) -> bool:
         try:
-            self.service.events().delete(
-                calendarId=self.calendar_id,
-                eventId=event_id
-            ).execute()
-            return True
+            resp = requests.delete(
+                f"{self._BASE}{self._event_path(event_id)}",
+                headers=self._headers(), timeout=30
+            )
+            return resp.status_code in (200, 204)
         except Exception:
             return False
 
@@ -1327,22 +1354,25 @@ class SyncApp:
         """カレンダー一覧を更新"""
         if not self.google_authenticated:
             return
-        
+
         try:
-            # 一時的にサービスを作成
             with open(TOKEN_FILE, "rb") as f:
                 creds = pickle.load(f)
-            service = build('calendar', 'v3', credentials=creds)
-            calendars = service.calendarList().list().execute()
-            calendar_names = [cal['summary'] for cal in calendars.get('items', [])]
-            
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            resp = requests.get(
+                "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+                headers={"Authorization": f"Bearer {creds.token}"},
+                timeout=30
+            )
+            resp.raise_for_status()
+            calendar_names = [cal['summary'] for cal in resp.json().get('items', [])]
+
             self.calendar_combo['values'] = calendar_names
-            
-            # 現在の選択が一覧にあれば維持
             current = self.calendar_var.get()
             if current not in calendar_names and calendar_names:
                 self.calendar_var.set(calendar_names[0])
-                
+
         except Exception as e:
             self._log(f"カレンダー取得エラー: {e}")
     
