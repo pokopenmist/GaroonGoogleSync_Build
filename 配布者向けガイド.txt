@@ -1,0 +1,162 @@
+# 配布者向け：Garoon-Google Sync 配布ガイド
+
+---
+
+## 配布方法の選択肢
+
+### 方法A: credentials.json を各ユーザーに作成してもらう（推奨）
+
+**メリット:**
+- セキュリティ面で安全
+- APIの使用量制限が各ユーザーに分散
+
+**デメリット:**
+- ユーザーがGoogle Cloud Consoleでの設定作業が必要
+
+**配布物:**
+```
+GaroonGoogleSync/
+├── GaroonGoogleSync.exe
+└── README.txt（セットアップ手順書）
+```
+
+---
+
+### 方法B: credentials.json を同梱して配布
+
+**メリット:**
+- ユーザーの設定作業が簡単
+
+**デメリット:**
+- 全ユーザーのAPI使用量が1つのプロジェクトに集約される
+- Google Cloud Projectの管理が必要
+- OAuth同意画面の「本番公開」申請が必要（100人以上の場合）
+
+**配布物:**
+```
+GaroonGoogleSync/
+├── GaroonGoogleSync.exe
+├── credentials.json      ← 同梱
+└── README.txt
+```
+
+---
+
+## EXE化の手順
+
+### 1. 必要なソフトウェア
+
+- Python 3.8以上
+- PyInstaller
+
+### 2. ビルド環境の準備
+
+```batch
+# 必要なライブラリをインストール
+pip install requests
+pip install google-api-python-client
+pip install google-auth-httplib2
+pip install google-auth-oauthlib
+pip install pyinstaller
+```
+
+### 3. EXE作成コマンド
+
+```batch
+pyinstaller --onefile --noconsole --name "GaroonGoogleSync" garoon_google_sync_gui.py
+```
+
+### 4. 出力ファイル
+
+`dist` フォルダに `GaroonGoogleSync.exe` が作成されます。
+
+---
+
+## 方法B を選択する場合の追加手順
+
+### Google Cloud Project の設定
+
+1. **OAuth同意画面の設定**
+   - ユーザータイプ: 外部
+   - 公開ステータス: テスト → 本番（100人以上に配布する場合）
+
+2. **テストユーザーの制限（テストモードの場合）**
+   - テストモードでは最大100人まで
+   - 100人以上に配布する場合は「本番公開」申請が必要
+
+3. **本番公開の申請（必要な場合）**
+   - Googleの審査が必要（数日〜数週間）
+   - プライバシーポリシーのURL必要
+   - ホームページのURL必要
+
+### credentials.json の取得
+
+1. Google Cloud Console → 認証情報
+2. OAuth 2.0 クライアント ID を作成（デスクトップアプリ）
+3. JSONをダウンロード
+4. `credentials.json` にリネーム
+
+---
+
+## サブドメインの変更
+
+現在、Garoonのサブドメインは「mrh-garoon」にハードコードされています。
+
+別の組織に配布する場合は、ソースコードの以下の行を変更してください：
+
+```python
+# garoon_google_sync_gui.py の先頭付近
+GAROON_SUBDOMAIN = "mrh-garoon"  # ← ここを変更
+```
+
+---
+
+## 配布パッケージの作成例
+
+### ZIPファイルで配布
+
+```
+GaroonGoogleSync_v1.0.zip
+├── GaroonGoogleSync.exe
+├── credentials.json      # 方法Bの場合のみ
+└── README.txt
+```
+
+### 配布手順
+
+1. EXEを作成
+2. 必要なファイルを1つのフォルダにまとめる
+3. ZIPで圧縮
+4. メールやファイルサーバーで配布
+
+---
+
+## セキュリティ上の注意
+
+### 配布者側
+
+- `credentials.json` には機密情報が含まれます
+- 信頼できる相手にのみ配布してください
+
+### ユーザー側への注意喚起
+
+- `token.pickle` は認証済みトークンなので共有禁止
+- `sync_config.json` にパスワードが保存される場合がある
+- これらのファイルを第三者に渡さないよう周知
+
+---
+
+## よくある質問
+
+### Q: Google Calendar API の無料枠は？
+A: 1日100万リクエストまで無料。通常の使用では問題になりません。
+
+### Q: 同時に何人まで使える？
+A: テストモードでは100人まで。本番公開すれば制限なし。
+
+### Q: Windowsのバージョン制限は？
+A: Windows 10/11で動作確認済み。Windows 7は未確認。
+
+### Q: ウイルス対策ソフトに検知される
+A: PyInstallerで作成したEXEは誤検知されることがあります。
+   除外設定に追加してもらうか、ソースから実行してもらってください。

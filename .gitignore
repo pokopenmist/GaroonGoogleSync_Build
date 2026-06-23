@@ -1,0 +1,13 @@
+# 実行時生成ファイル（機密情報含む）
+credentials.json
+token.pickle
+sync_config.json
+sync_mapping.db
+sync_log.txt
+
+# ビルド成果物
+_archive/
+venv/
+__pycache__/
+*.pyc
+*.pyo
