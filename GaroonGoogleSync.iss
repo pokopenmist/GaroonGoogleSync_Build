@@ -39,4 +39,7 @@ Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+; インストール先フォルダを開く（credentials.json の配置場所を確認できる）
+Filename: "{app}"; Description: "インストール先フォルダを開く（credentials.json をここに配置）"; Flags: postinstall shellexec skipifsilent
+; アプリを起動する
 Filename: "{app}\{#MyAppExeName}"; Description: "セットアップ完了後に {#MyAppName} を起動する"; Flags: nowait postinstall skipifsilent

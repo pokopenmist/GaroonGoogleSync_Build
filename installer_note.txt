@@ -1,13 +1,18 @@
 【重要】セットアップ後の必須手順
 
 このアプリを使用するには Google 認証情報ファイルが必要です。
+管理者から配布された credentials.json を以下の場所に配置してください。
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-手順: credentials.json を以下のフォルダに配置する
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+配置先フォルダ：
+  %LOCALAPPDATA%\GaroonGoogleSync\
 
-  %LOCALAPPDATA%\GaroonGoogleSync\credentials.json
+例（ユーザー名が yamada の場合）：
+  C:\Users\yamada\AppData\Local\GaroonGoogleSync\
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-（例: C:\Users\yamada\AppData\Local\GaroonGoogleSync\credentials.json）
+ヒント：
+次の画面で「インストール先フォルダを開く」にチェックを入れると
+フォルダが自動で開きます。そこに credentials.json を貼り付けてください。
 
-credentials.json の取得方法は同フォルダの README.txt を参照してください。
+詳細は同フォルダの README.txt を参照してください。
