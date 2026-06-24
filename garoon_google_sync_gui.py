@@ -459,12 +459,15 @@ class GoogleCalendarClient:
             print(f"Google Calendar API エラー: {e}")
             return None
 
-    def update_event(self, event_id: str, event_data: Dict) -> Optional[Dict]:
+    def update_event(self, event_id: str, event_data: Dict):
+        """イベントを更新。404の場合は "NOT_FOUND" を返す"""
         try:
             resp = requests.put(
                 f"{self._BASE}{self._event_path(event_id)}",
                 headers=self._headers(), json=event_data, timeout=30
             )
+            if resp.status_code == 404:
+                return "NOT_FOUND"
             resp.raise_for_status()
             return resp.json()
         except Exception:
@@ -803,9 +806,9 @@ class GaroonToGoogleSync:
                     self.stats['errors'] += 1
 
             elif not garoon_exists and not google_exists:
-                # 両方で削除済み → マッピング削除
-                self.db.mark_deleted(garoon_id=garoon_id)
-                deleted_garoon_ids.add(garoon_id)
+                # 両方で見つからない場合は同期範囲外の可能性があるためDBは保持
+                # （ここでmark_deletedすると範囲外イベントが次回再作成され重複する）
+                pass
 
         return deleted_garoon_ids
     
@@ -821,17 +824,13 @@ class GaroonToGoogleSync:
             mapping = self.db.get_mapping_by_garoon_id(garoon_id)
             
             if mapping:
-                # 既存マッピングあり → 更新チェック
+                # 既存マッピングあり → Garoonが更新されていればGoogleを更新
+                # google_by_idは参照しない：singleEvents=falseではAPIが繰り返し
+                # イベントのマスターをtimeMin前のDTSTARTで返さない場合があり、
+                # google_by_idにないからといって「存在しない」とは断定できないため。
                 google_id = mapping['google_id']
-                google_event = google_by_id.get(google_id)
-                
-                if google_event:
-                    # Garoonが更新されていたらGoogleを更新
-                    if self._is_newer(garoon_updated, mapping.get('garoon_updated_at', '')):
-                        self._update_google_from_garoon(event, google_id)
-                else:
-                    # Googleにない → 再作成
-                    self._add_to_google(event)
+                if self._is_newer(garoon_updated, mapping.get('garoon_updated_at', '')):
+                    self._update_google_from_garoon(event, google_id)
             else:
                 # 新規 → Googleに追加
                 self._add_to_google(event)
@@ -881,11 +880,15 @@ class GaroonToGoogleSync:
         event_date = self._get_event_date(google_data)
         
         result = self.google.update_event(google_id, google_data)
-        if result:
+        if result == "NOT_FOUND":
+            # Google側でイベントが手動削除されていた → 再作成
+            self.log(f"  ⚠ Google側で削除済みのため再作成: [{event_date}] {google_data['summary']}")
+            self.db.mark_deleted(garoon_id=str(garoon_event.get("id")))
+            self._add_to_google(garoon_event)
+        elif result:
             garoon_id = str(garoon_event.get("id"))
             garoon_updated = EventConverter.get_garoon_updated_at(garoon_event)
             google_updated = EventConverter.get_google_updated_at(result)
-            
             self.db.update_mapping(garoon_id=garoon_id, garoon_updated=garoon_updated, google_updated=google_updated)
             self.log(f"  ↻ 更新: [{event_date}] {google_data['summary']}")
             self.stats['google_updated'] += 1
