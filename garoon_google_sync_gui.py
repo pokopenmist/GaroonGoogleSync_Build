@@ -39,6 +39,19 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 GAROON_SUBDOMAIN = "mrh-garoon"  # Garoonサブドメイン（固定）
 
+# 期間単位: config保存値 → UI表示ラベル
+UNIT_TO_LABEL = {"days": "日", "months": "ヶ月", "years": "年"}
+LABEL_TO_UNIT = {"日": "days", "ヶ月": "months", "年": "years"}
+UNIT_OPTIONS = ["日", "ヶ月", "年"]
+
+def _shift_date(base_date, value: int, unit: str):
+    """base_date を value 単位分ずらす（unit: 'days'|'months'|'years'）"""
+    if unit == "months":
+        return base_date + relativedelta(months=value)
+    elif unit == "years":
+        return base_date + relativedelta(years=value)
+    return base_date + timedelta(days=value)
+
 def get_app_dir():
     """アプリケーション（スクリプト/exe）のディレクトリを取得"""
     if getattr(sys, 'frozen', False):
@@ -67,8 +80,10 @@ class ConfigManager:
             "garoon_username": "",
             "garoon_password": "",  # 注意: 平文保存
             "calendar_name": "Garoon",
-            "past_days": 7,
-            "future_days": 90,  # 約3ヶ月
+            "past_value": 7,
+            "past_unit": "days",
+            "future_value": 3,
+            "future_unit": "months",
             "save_password": False
         }
     
@@ -1145,14 +1160,18 @@ class SyncApp:
         
         ttk.Label(period_frame, text="同期期間:", style='Card.TLabel').pack(side=tk.LEFT, padx=(0, 10))
         ttk.Label(period_frame, text="過去", style='Card.TLabel').pack(side=tk.LEFT)
-        self.past_days_var = tk.StringVar()
-        past_entry = ttk.Entry(period_frame, textvariable=self.past_days_var, width=6)
-        past_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(period_frame, text="日前  ～  未来", style='Card.TLabel').pack(side=tk.LEFT)
-        self.future_days_var = tk.StringVar()
-        future_entry = ttk.Entry(period_frame, textvariable=self.future_days_var, width=6)
-        future_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(period_frame, text="日後", style='Card.TLabel').pack(side=tk.LEFT)
+        self.past_value_var = tk.StringVar()
+        ttk.Entry(period_frame, textvariable=self.past_value_var, width=5).pack(side=tk.LEFT, padx=(5, 2))
+        self.past_unit_var = tk.StringVar()
+        ttk.Combobox(period_frame, textvariable=self.past_unit_var,
+                     values=UNIT_OPTIONS, width=5, state='readonly').pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(period_frame, text="前  ～  未来", style='Card.TLabel').pack(side=tk.LEFT)
+        self.future_value_var = tk.StringVar()
+        ttk.Entry(period_frame, textvariable=self.future_value_var, width=5).pack(side=tk.LEFT, padx=(5, 2))
+        self.future_unit_var = tk.StringVar()
+        ttk.Combobox(period_frame, textvariable=self.future_unit_var,
+                     values=UNIT_OPTIONS, width=5, state='readonly').pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(period_frame, text="後", style='Card.TLabel').pack(side=tk.LEFT)
         
         # === 実行ボタンエリア（同期設定とログの間）===
         button_frame = ttk.Frame(upper_frame, style='Dark.TFrame')
@@ -1222,8 +1241,15 @@ class SyncApp:
         self.password_var.set(self.config.get("garoon_password", ""))
         self.save_password_var.set(self.config.get("save_password", False))
         self.calendar_var.set(self.config.get("calendar_name", "Garoon"))
-        self.past_days_var.set(str(self.config.get("past_days", 7)))
-        self.future_days_var.set(str(self.config.get("future_days", 90)))
+        # 旧設定 past_days/future_days との後方互換
+        past_val = self.config.get("past_value", self.config.get("past_days", 7))
+        past_u = UNIT_TO_LABEL.get(self.config.get("past_unit", "days"), "日")
+        future_val = self.config.get("future_value", self.config.get("future_days", 90))
+        future_u = UNIT_TO_LABEL.get(self.config.get("future_unit", "days"), "日")
+        self.past_value_var.set(str(past_val))
+        self.past_unit_var.set(past_u)
+        self.future_value_var.set(str(future_val))
+        self.future_unit_var.set(future_u)
         
         # Google認証状態を確認・自動リフレッシュ
         self._check_google_auth()
@@ -1278,11 +1304,20 @@ class SyncApp:
         self.config["calendar_name"] = self.calendar_var.get()
         
         try:
-            self.config["past_days"] = int(self.past_days_var.get())
-            self.config["future_days"] = int(self.future_days_var.get())
+            past_val = int(self.past_value_var.get())
+            future_val = int(self.future_value_var.get())
+            if past_val <= 0 or future_val <= 0:
+                raise ValueError
         except ValueError:
-            messagebox.showerror("エラー", "同期期間は数値で入力してください")
+            messagebox.showerror("エラー", "同期期間は正の整数で入力してください")
             return
+        self.config["past_value"] = past_val
+        self.config["past_unit"] = LABEL_TO_UNIT.get(self.past_unit_var.get(), "days")
+        self.config["future_value"] = future_val
+        self.config["future_unit"] = LABEL_TO_UNIT.get(self.future_unit_var.get(), "months")
+        # 旧キーを削除
+        self.config.pop("past_days", None)
+        self.config.pop("future_days", None)
         
         self.config_manager.save(self.config)
         messagebox.showinfo("保存完了", "設定を保存しました")
@@ -1387,7 +1422,7 @@ class SyncApp:
             self._log(f"カレンダー取得エラー: {e}")
     
     def _create_calendar(self):
-        """新しいGoogleカレンダーを作成して選択状態にする"""
+        """新しいGoogleカレンダーを作成して選択状態にする（重複チェックあり）"""
         if not self.google_authenticated:
             messagebox.showerror("エラー", "先にGoogle認証を行ってください")
             return
@@ -1402,16 +1437,38 @@ class SyncApp:
             return
         name = name.strip()
 
-        self._log(f"📅 カレンダー '{name}' を作成中...")
         try:
             with open(TOKEN_FILE, "rb") as f:
                 creds = pickle.load(f)
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
 
+            headers = {"Authorization": f"Bearer {creds.token}"}
+
+            # 既存カレンダーと重複チェック
+            resp = requests.get(
+                "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+                headers=headers, timeout=30
+            )
+            resp.raise_for_status()
+            existing_names = [cal["summary"] for cal in resp.json().get("items", [])]
+
+            if name in existing_names:
+                # 同名が既に存在する場合は作成せず選択のみ
+                messagebox.showinfo(
+                    "カレンダーが既に存在します",
+                    f"「{name}」はGoogleカレンダーに既に存在します。\n同期先として選択します。"
+                )
+                self._log(f"ℹ️ 既存カレンダー '{name}' を選択しました")
+                self._refresh_calendars()
+                self.calendar_var.set(name)
+                return
+
+            # 存在しない場合のみ新規作成
+            self._log(f"📅 カレンダー '{name}' を作成中...")
             resp = requests.post(
                 "https://www.googleapis.com/calendar/v3/calendars",
-                headers={"Authorization": f"Bearer {creds.token}"},
+                headers=headers,
                 json={"summary": name},
                 timeout=30
             )
@@ -1419,8 +1476,6 @@ class SyncApp:
 
             self._log(f"✅ カレンダー '{name}' を作成しました")
             messagebox.showinfo("作成完了", f"Googleカレンダーに '{name}' を作成しました\n同期先として選択します")
-
-            # カレンダー一覧を更新して新カレンダーを選択
             self._refresh_calendars()
             self.calendar_var.set(name)
 
@@ -1447,27 +1502,34 @@ class SyncApp:
             return
         
         try:
-            past_days = int(self.past_days_var.get())
-            future_days = int(self.future_days_var.get())
+            past_val = int(self.past_value_var.get())
+            future_val = int(self.future_value_var.get())
+            if past_val <= 0 or future_val <= 0:
+                raise ValueError
         except ValueError:
-            messagebox.showerror("エラー", "同期期間は数値で入力してください")
+            messagebox.showerror("エラー", "同期期間は正の整数で入力してください")
             return
-        
+        past_unit = LABEL_TO_UNIT.get(self.past_unit_var.get(), "days")
+        future_unit = LABEL_TO_UNIT.get(self.future_unit_var.get(), "months")
+
         # 同期実行（別スレッド）
         self.is_syncing = True
         self.sync_button.config(state=tk.DISABLED)
-        
-        thread = threading.Thread(target=self._sync_thread, args=(past_days, future_days))
+
+        thread = threading.Thread(
+            target=self._sync_thread,
+            args=(past_val, past_unit, future_val, future_unit)
+        )
         thread.start()
     
-    def _sync_thread(self, past_days: int, future_days: int):
+    def _sync_thread(self, past_value: int, past_unit: str, future_value: int, future_unit: str):
         """同期処理（別スレッド）"""
         db = None
         try:
             # 日付範囲を計算
             today = datetime.now().date()
-            start_date = (today - timedelta(days=past_days)).strftime("%Y-%m-%d")
-            end_date = (today + timedelta(days=future_days)).strftime("%Y-%m-%d")
+            start_date = _shift_date(today, -past_value, past_unit).strftime("%Y-%m-%d")
+            end_date = _shift_date(today, future_value, future_unit).strftime("%Y-%m-%d")
 
             self._log("=" * 50)
             self._log("🚀 同期開始")
@@ -1575,8 +1637,11 @@ def run_auto_sync(silent=False):
         username = config.get("garoon_username", "")
         password = config.get("garoon_password", "")
         calendar_name = config.get("calendar_name", "")
-        past_days = config.get("past_days", 7)
-        future_days = config.get("future_days", 90)
+        # 新形式優先、旧形式 past_days/future_days にも対応
+        past_value = config.get("past_value", config.get("past_days", 7))
+        past_unit = config.get("past_unit", "days")
+        future_value = config.get("future_value", config.get("future_days", 90))
+        future_unit = config.get("future_unit", "days")
 
         if not username or not password:
             log("❌ エラー: Garoon設定がありません。GUIで設定を保存してください。")
@@ -1592,8 +1657,8 @@ def run_auto_sync(silent=False):
 
         # 日付範囲を計算
         today = datetime.now().date()
-        start_date = (today - timedelta(days=past_days)).strftime("%Y-%m-%d")
-        end_date = (today + timedelta(days=future_days)).strftime("%Y-%m-%d")
+        start_date = _shift_date(today, -past_value, past_unit).strftime("%Y-%m-%d")
+        end_date = _shift_date(today, future_value, future_unit).strftime("%Y-%m-%d")
 
         log(f"📅 期間: {start_date} ～ {end_date}")
 
