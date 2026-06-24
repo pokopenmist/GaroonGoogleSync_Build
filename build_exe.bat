@@ -47,6 +47,16 @@ if not exist "dist\GaroonGoogleSync\GaroonGoogleSync.exe" (
 )
 
 echo.
+echo Step 5b: Removing unnecessary Tcl subpackages (reduces AV false positives)...
+set TCL_DATA=dist\GaroonGoogleSync\_internal\_tcl_data
+for %%D in (tzdata msgs http1.0 opt0.4) do (
+    if exist "%TCL_DATA%\%%D" (
+        rmdir /s /q "%TCL_DATA%\%%D"
+        echo   Removed: %%D
+    )
+)
+
+echo.
 echo Step 6: Creating release package (ZIP)...
 if exist release rmdir /s /q release
 mkdir release\GaroonGoogleSync
