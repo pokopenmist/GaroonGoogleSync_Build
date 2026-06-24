@@ -12,7 +12,7 @@ Garoon → Google Calendar 一方通行同期ツール（GUI版）
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, simpledialog
 import threading
 import json
 import os
@@ -1129,8 +1129,11 @@ class SyncApp:
         self.calendar_combo.pack(side=tk.LEFT)
         
         ttk.Button(cal_row, text="🔄", command=self._refresh_calendars,
-                  width=3).pack(side=tk.LEFT, padx=5)
-        
+                  width=3).pack(side=tk.LEFT, padx=(5, 2))
+
+        ttk.Button(cal_row, text="＋ 新規作成", command=self._create_calendar,
+                  style='Accent.TButton').pack(side=tk.LEFT, padx=(0, 5))
+
         # === 同期設定 ===
         sync_frame = ttk.LabelFrame(upper_frame, text="⚙️ 同期設定",
                                     style='Card.TLabelframe', padding="10")
@@ -1170,7 +1173,14 @@ class SyncApp:
         ttk.Button(button_frame, text="✕ 終了",
                   command=self._quit_app,
                   style='Danger.TButton').pack(side=tk.RIGHT, padx=5)
-        
+
+        # アンインストール説明
+        tk.Label(upper_frame,
+                 text="💡 アンインストール: GaroonGoogleSync フォルダを削除するだけでOKです",
+                 bg=self.COLORS['bg_dark'],
+                 fg='#7F8C8D',
+                 font=('Yu Gothic UI', 8)).pack(anchor=tk.W, padx=10, pady=(0, 4))
+
         # === 下部ペイン（ログエリア）===
         lower_frame = ttk.Frame(self.paned, style='Dark.TFrame')
         self.paned.add(lower_frame, minsize=150)
@@ -1376,6 +1386,48 @@ class SyncApp:
         except Exception as e:
             self._log(f"カレンダー取得エラー: {e}")
     
+    def _create_calendar(self):
+        """新しいGoogleカレンダーを作成して選択状態にする"""
+        if not self.google_authenticated:
+            messagebox.showerror("エラー", "先にGoogle認証を行ってください")
+            return
+
+        name = simpledialog.askstring(
+            "新規カレンダー作成",
+            "作成するカレンダー名を入力してください:",
+            initialvalue="Garoon",
+            parent=self.root
+        )
+        if not name or not name.strip():
+            return
+        name = name.strip()
+
+        self._log(f"📅 カレンダー '{name}' を作成中...")
+        try:
+            with open(TOKEN_FILE, "rb") as f:
+                creds = pickle.load(f)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+
+            resp = requests.post(
+                "https://www.googleapis.com/calendar/v3/calendars",
+                headers={"Authorization": f"Bearer {creds.token}"},
+                json={"summary": name},
+                timeout=30
+            )
+            resp.raise_for_status()
+
+            self._log(f"✅ カレンダー '{name}' を作成しました")
+            messagebox.showinfo("作成完了", f"Googleカレンダーに '{name}' を作成しました\n同期先として選択します")
+
+            # カレンダー一覧を更新して新カレンダーを選択
+            self._refresh_calendars()
+            self.calendar_var.set(name)
+
+        except Exception as e:
+            self._log(f"❌ カレンダー作成エラー: {e}")
+            messagebox.showerror("エラー", f"カレンダーの作成に失敗しました\n{e}")
+
     def _run_sync(self):
         """同期実行"""
         if self.is_syncing:
