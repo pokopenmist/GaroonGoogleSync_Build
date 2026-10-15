@@ -44,7 +44,7 @@ class TestGaroonToGoogleSyncNotificationWiring(unittest.TestCase):
         mock_google.create_event.return_value = {"id": "g1", "updated": "2026-10-15T01:00:00Z"}
         mock_db = Mock()
         engine = GaroonToGoogleSync(garoon=None, google=mock_google, db=mock_db,
-                                     enable_notifications=False)
+                                    log_callback=lambda *_: None, enable_notifications=False)
         engine._add_to_google(SAMPLE_EVENT)
         sent_event = mock_google.create_event.call_args[0][0]
         self.assertEqual(sent_event["reminders"], {"useDefault": False, "overrides": []})
@@ -54,7 +54,7 @@ class TestGaroonToGoogleSyncNotificationWiring(unittest.TestCase):
         mock_google.update_event.return_value = {"id": "g1", "updated": "2026-10-15T01:00:00Z"}
         mock_db = Mock()
         engine = GaroonToGoogleSync(garoon=None, google=mock_google, db=mock_db,
-                                     enable_notifications=False)
+                                    log_callback=lambda *_: None, enable_notifications=False)
         engine._update_google_from_garoon(SAMPLE_EVENT, google_id="g1")
         sent_event = mock_google.update_event.call_args[0][1]
         self.assertEqual(sent_event["reminders"], {"useDefault": False, "overrides": []})

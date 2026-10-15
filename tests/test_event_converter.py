@@ -18,6 +18,19 @@ SAMPLE_EVENT = {
     "end": {"dateTime": "2026-10-20T11:00:00+09:00"},
 }
 
+SAMPLE_REPEATING_EVENT = {
+    "id": "456",
+    "subject": "定例会議",
+    "eventMenu": "",
+    "eventType": "REPEATING",
+    "isAllDay": False,
+    "notes": "",
+    "updatedAt": "2026-10-15T01:00:00Z",
+    "start": {"dateTime": "2026-10-20T10:00:00+09:00"},
+    "end": {"dateTime": "2026-10-20T11:00:00+09:00"},
+    "repeatInfo": {"type": "EVERY_WEEK", "dayOfWeek": "TUE"},
+}
+
 
 class TestGaroonToGoogleNotifications(unittest.TestCase):
     def test_enable_notifications_true_omits_reminders(self):
@@ -34,6 +47,14 @@ class TestGaroonToGoogleNotifications(unittest.TestCase):
         result = EventConverter.garoon_to_google(SAMPLE_EVENT)
         self.assertIsNotNone(result)
         self.assertNotIn("reminders", result)
+
+
+class TestGaroonToGoogleNotificationsRepeating(unittest.TestCase):
+    def test_enable_notifications_false_with_repeating_event(self):
+        result = EventConverter.garoon_to_google(SAMPLE_REPEATING_EVENT, enable_notifications=False)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["reminders"], {"useDefault": False, "overrides": []})
+        self.assertIn("recurrence", result)
 
 
 if __name__ == "__main__":
