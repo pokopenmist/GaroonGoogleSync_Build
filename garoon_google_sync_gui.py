@@ -84,7 +84,8 @@ class ConfigManager:
             "past_unit": "days",
             "future_value": 3,
             "future_unit": "months",
-            "save_password": False
+            "save_password": False,
+            "enable_notifications": True
         }
     
     def load(self) -> Dict:
@@ -747,11 +748,13 @@ class EventConverter:
 class GaroonToGoogleSync:
     """Garoon→Google 一方通行同期"""
     
-    def __init__(self, garoon: GaroonClient, google: GoogleCalendarClient, db: SyncDatabase, log_callback=None):
+    def __init__(self, garoon: GaroonClient, google: GoogleCalendarClient, db: SyncDatabase,
+                 log_callback=None, enable_notifications: bool = True):
         self.garoon = garoon
         self.google = google
         self.db = db
         self.log = log_callback or print
+        self.enable_notifications = enable_notifications
         self.stats = {
             'google_added': 0, 'google_updated': 0, 'google_deleted': 0,
             'errors': 0
@@ -847,14 +850,18 @@ class GaroonToGoogleSync:
         if event_type == "REPEATING":
             self.log(f"  📅 繰り返し予定処理中: {title}")
         
-        google_data = EventConverter.garoon_to_google(garoon_event, log_func=self.log if event_type == "REPEATING" else None)
+        google_data = EventConverter.garoon_to_google(
+            garoon_event,
+            log_func=self.log if event_type == "REPEATING" else None,
+            enable_notifications=self.enable_notifications
+        )
         if not google_data:
             self.log(f"  ⚠ 変換スキップ: {title}")
             return
-        
+
         # 日付を取得
         event_date = self._get_event_date(google_data)
-        
+
         result = self.google.create_event(google_data)
         if result:
             garoon_id = str(garoon_event.get("id"))
@@ -876,7 +883,11 @@ class GaroonToGoogleSync:
     
     def _update_google_from_garoon(self, garoon_event, google_id):
         event_type = garoon_event.get("eventType", "REGULAR")
-        google_data = EventConverter.garoon_to_google(garoon_event, log_func=self.log if event_type == "REPEATING" else None)
+        google_data = EventConverter.garoon_to_google(
+            garoon_event,
+            log_func=self.log if event_type == "REPEATING" else None,
+            enable_notifications=self.enable_notifications
+        )
         if not google_data:
             return
         
