@@ -120,7 +120,8 @@ class SyncDatabase:
     
     def __init__(self, db_file: str):
         self.db_file = db_file
-        self.conn = sqlite3.connect(db_file)
+        self.conn = sqlite3.connect(db_file, timeout=30, check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
     
