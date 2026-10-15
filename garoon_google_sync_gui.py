@@ -1033,24 +1033,24 @@ class SyncApp:
         style.configure('Success.TButton',
                        background=self.COLORS['success'],
                        foreground='white',
-                       font=(ui_font, 11, 'bold'),
-                       padding=(20, 10))
+                       font=(ui_font, 10, 'bold'),
+                       padding=(15, 8))
         style.map('Success.TButton',
                  background=[('active', '#229954')])
 
         style.configure('Danger.TButton',
                        background=self.COLORS['danger'],
                        foreground='white',
-                       font=(ui_font, 10),
-                       padding=(10, 5))
+                       font=(ui_font, 10, 'bold'),
+                       padding=(15, 8))
         style.map('Danger.TButton',
                  background=[('active', '#C0392B')])
 
         style.configure('Secondary.TButton',
                        background='#95A5A6',
                        foreground='white',
-                       font=(ui_font, 10),
-                       padding=(10, 5))
+                       font=(ui_font, 10, 'bold'),
+                       padding=(15, 8))
 
         # LabelFrameスタイル
         style.configure('Card.TLabelframe',
