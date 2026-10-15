@@ -1205,18 +1205,18 @@ class SyncApp:
         button_frame.pack(fill=tk.X, pady=(10, 10))
         
         # 同期実行ボタン（大きめ・緑）
-        self.sync_button = ttk.Button(button_frame, text="▶ 同期実行",
+        self.sync_button = ttk.Button(button_frame, text="同期実行",
                                       command=self._run_sync,
                                       style='Success.TButton')
         self.sync_button.pack(side=tk.LEFT, padx=5)
         
         # 設定保存ボタン
-        ttk.Button(button_frame, text="💾 設定を保存",
+        ttk.Button(button_frame, text="設定を保存",
                   command=self._save_config,
                   style='Secondary.TButton').pack(side=tk.LEFT, padx=5)
         
         # 終了ボタン（右端・赤）
-        ttk.Button(button_frame, text="✕ 終了",
+        ttk.Button(button_frame, text="終了",
                   command=self._quit_app,
                   style='Danger.TButton').pack(side=tk.RIGHT, padx=5)
 
