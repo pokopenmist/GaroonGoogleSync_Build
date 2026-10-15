@@ -11,8 +11,6 @@ Garoon → Google Calendar 一方通行同期ツール（GUI版）
 - SQLiteでマッピング情報を管理
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog
 import threading
 import json
 import os
@@ -1629,6 +1627,11 @@ def main():
         # 自動同期モード（GUIなし）
         run_auto_sync(silent=args.silent)
     else:
+        # GUIモードでのみtkinterをロード（--autoモードの起動を高速化）
+        global tk, ttk, messagebox, scrolledtext, simpledialog
+        import tkinter as tk
+        from tkinter import ttk, messagebox, scrolledtext, simpledialog
+
         # 高DPI対応（4K/2K環境でのにじみ防止）
         try:
             import ctypes
