@@ -502,7 +502,7 @@ class EventConverter:
     }
     
     @staticmethod
-    def garoon_to_google(garoon_event: Dict, log_func=None) -> Optional[Dict]:
+    def garoon_to_google(garoon_event: Dict, log_func=None, enable_notifications: bool = True) -> Optional[Dict]:
         title = EventConverter._get_garoon_title(garoon_event)
         notes = garoon_event.get("notes", "") or ""
         is_all_day = garoon_event.get("isAllDay", False)
@@ -603,7 +603,10 @@ class EventConverter:
             else:
                 if log_func:
                     log_func(f"    → RRULE変換失敗")
-        
+
+        if not enable_notifications:
+            google_event["reminders"] = {"useDefault": False, "overrides": []}
+
         return google_event
     
     @staticmethod
