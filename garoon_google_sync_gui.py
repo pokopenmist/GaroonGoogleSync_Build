@@ -1190,7 +1190,16 @@ class SyncApp:
         ttk.Combobox(period_frame, textvariable=self.future_unit_var,
                      values=UNIT_OPTIONS, width=5, state='readonly').pack(side=tk.LEFT, padx=(0, 5))
         ttk.Label(period_frame, text="後", style='Card.TLabel').pack(side=tk.LEFT)
-        
+
+        # 通知設定行
+        notification_row = ttk.Frame(sync_frame, style='Card.TFrame')
+        notification_row.pack(fill=tk.X, pady=(5, 0))
+
+        self.notifications_var = tk.BooleanVar()
+        ttk.Checkbutton(notification_row, text="Google通知（リマインダー）を有効にする",
+                       variable=self.notifications_var,
+                       style='Card.TCheckbutton').pack(side=tk.LEFT)
+
         # === 実行ボタンエリア（同期設定とログの間）===
         button_frame = ttk.Frame(upper_frame, style='Dark.TFrame')
         button_frame.pack(fill=tk.X, pady=(10, 10))
@@ -1258,6 +1267,7 @@ class SyncApp:
         self.username_var.set(self.config.get("garoon_username", ""))
         self.password_var.set(self.config.get("garoon_password", ""))
         self.save_password_var.set(self.config.get("save_password", False))
+        self.notifications_var.set(self.config.get("enable_notifications", True))
         self.calendar_var.set(self.config.get("calendar_name", "Garoon"))
         # 旧設定 past_days/future_days との後方互換
         past_val = self.config.get("past_value", self.config.get("past_days", 7))
@@ -1319,6 +1329,7 @@ class SyncApp:
         self.config["garoon_username"] = self.username_var.get()
         self.config["garoon_password"] = self.password_var.get()
         self.config["save_password"] = self.save_password_var.get()
+        self.config["enable_notifications"] = self.notifications_var.get()
         self.config["calendar_name"] = self.calendar_var.get()
         
         try:
@@ -1566,7 +1577,10 @@ class SyncApp:
             db = SyncDatabase(DB_FILE)
 
             # 同期実行
-            sync_engine = GaroonToGoogleSync(garoon, google, db, self._log)
+            sync_engine = GaroonToGoogleSync(
+                garoon, google, db, self._log,
+                enable_notifications=self.notifications_var.get()
+            )
             stats = sync_engine.sync(start_date, end_date)
 
             # 結果表示
@@ -1686,7 +1700,10 @@ def run_auto_sync(silent=False):
         db = SyncDatabase(DB_FILE)
 
         # 同期実行
-        sync_engine = GaroonToGoogleSync(garoon, google, db, log)
+        sync_engine = GaroonToGoogleSync(
+            garoon, google, db, log,
+            enable_notifications=config.get("enable_notifications", True)
+        )
         stats = sync_engine.sync(start_date, end_date)
 
         # 結果表示
