@@ -964,8 +964,8 @@ class SyncApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Garoon → Google Calendar 同期ツール")
-        self.root.geometry("650x900")
-        self.root.minsize(600, 700)
+        self.root.geometry("650x960")
+        self.root.minsize(600, 760)
         self.root.resizable(True, True)
         self.root.configure(bg=self.COLORS['bg_dark'])
         
@@ -1087,7 +1087,7 @@ class SyncApp:
         
         # === 上部ペイン（設定エリア）===
         upper_frame = ttk.Frame(self.paned, style='Dark.TFrame')
-        self.paned.add(upper_frame, minsize=400)
+        self.paned.add(upper_frame, minsize=430)
         
         # タイトル
         title_frame = ttk.Frame(upper_frame, style='Dark.TFrame')
