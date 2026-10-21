@@ -57,5 +57,28 @@ class TestGaroonToGoogleNotificationsRepeating(unittest.TestCase):
         self.assertIn("recurrence", result)
 
 
+class TestGaroonToGoogleFacilities(unittest.TestCase):
+    def test_facilities_set_location(self):
+        event = dict(SAMPLE_EVENT, facilities=[
+            {"id": "1", "code": "room1", "name": "第1会議室"},
+            {"id": "2", "code": "room2", "name": "第2会議室"},
+        ])
+        result = EventConverter.garoon_to_google(event)
+        self.assertEqual(result["location"], "第1会議室, 第2会議室")
+
+    def test_no_facilities_omits_location(self):
+        result = EventConverter.garoon_to_google(SAMPLE_EVENT)
+        self.assertNotIn("location", result)
+
+    def test_empty_facilities_omits_location(self):
+        event = dict(SAMPLE_EVENT, facilities=[])
+        result = EventConverter.garoon_to_google(event)
+        self.assertNotIn("location", result)
+
+    def test_get_garoon_location(self):
+        event = dict(SAMPLE_EVENT, facilities=[{"id": "1", "name": "応接室"}, {"id": "2", "name": ""}])
+        self.assertEqual(EventConverter.get_garoon_location(event), "応接室")
+
+
 if __name__ == "__main__":
     unittest.main()

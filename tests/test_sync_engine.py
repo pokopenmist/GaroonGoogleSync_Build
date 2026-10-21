@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from garoon_google_sync_gui import ConfigManager, GaroonToGoogleSync
+from garoon_google_sync_gui import APP_VERSION, ConfigManager, GaroonToGoogleSync
 
 SAMPLE_EVENT = {
     "id": "123",
@@ -58,6 +58,50 @@ class TestGaroonToGoogleSyncNotificationWiring(unittest.TestCase):
         engine._update_google_from_garoon(SAMPLE_EVENT, google_id="g1")
         sent_event = mock_google.update_event.call_args[0][1]
         self.assertEqual(sent_event["reminders"], {"useDefault": False, "overrides": []})
+
+
+class TestFacilityBackfill(unittest.TestCase):
+    """同期済み（updatedAt未変更）の予定でも、施設が場所に未反映なら更新する"""
+
+    def _engine(self, google_event):
+        mock_google = Mock()
+        mock_google.update_event.return_value = {"id": "g1", "updated": "2026-10-16T01:00:00Z"}
+        mock_db = Mock()
+        mock_db.get_mapping_by_garoon_id.return_value = {
+            "google_id": "g1", "garoon_updated_at": "2026-10-15T01:00:00Z",
+        }
+        engine = GaroonToGoogleSync(garoon=None, google=mock_google, db=mock_db,
+                                    log_callback=lambda *_: None)
+        return engine, mock_google, {"g1": google_event}
+
+    def test_updates_when_location_missing(self):
+        event = dict(SAMPLE_EVENT, facilities=[{"id": "1", "name": "第1会議室"}])
+        engine, mock_google, google_by_id = self._engine({"id": "g1"})
+        engine._process_garoon_events([event], google_by_id, set())
+        mock_google.update_event.assert_called_once()
+        self.assertEqual(mock_google.update_event.call_args[0][1]["location"], "第1会議室")
+
+    def test_skips_when_location_matches(self):
+        event = dict(SAMPLE_EVENT, facilities=[{"id": "1", "name": "第1会議室"}])
+        engine, mock_google, google_by_id = self._engine({"id": "g1", "location": "第1会議室"})
+        engine._process_garoon_events([event], google_by_id, set())
+        mock_google.update_event.assert_not_called()
+
+    def test_skips_when_no_facilities_and_no_location(self):
+        engine, mock_google, google_by_id = self._engine({"id": "g1"})
+        engine._process_garoon_events([SAMPLE_EVENT], google_by_id, set())
+        mock_google.update_event.assert_not_called()
+
+    def test_skips_when_google_event_not_fetched(self):
+        event = dict(SAMPLE_EVENT, facilities=[{"id": "1", "name": "第1会議室"}])
+        engine, mock_google, _ = self._engine({"id": "g1"})
+        engine._process_garoon_events([event], {}, set())
+        mock_google.update_event.assert_not_called()
+
+
+class TestAppVersion(unittest.TestCase):
+    def test_app_version(self):
+        self.assertEqual(APP_VERSION, "2.1.0")
 
 
 if __name__ == "__main__":

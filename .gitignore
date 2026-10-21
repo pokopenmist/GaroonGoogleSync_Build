@@ -14,3 +14,8 @@ __pycache__/
 
 # 作業用worktree
 .worktrees/
+
+# PyInstallerビルド出力・配布物（GitHub Releasesで配布）
+build/
+dist/
+release/

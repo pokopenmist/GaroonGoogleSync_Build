@@ -34,6 +34,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================
 # 定数
 # ============================================
+APP_VERSION = "2.1.0"
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 GAROON_SUBDOMAIN = "mrh-garoon"  # Garoonサブドメイン（固定）
 
@@ -513,7 +514,12 @@ class EventConverter:
             "summary": title,
             "description": f"[Garoonから同期]\n{notes}",
         }
-        
+
+        # 施設 → Googleの「場所」
+        location = EventConverter.get_garoon_location(garoon_event)
+        if location:
+            google_event["location"] = location
+
         start_dt = start_info.get("dateTime", "")
         end_dt = end_info.get("dateTime", "")
         
@@ -732,6 +738,12 @@ class EventConverter:
             return "（件名なし）"
     
     @staticmethod
+    def get_garoon_location(event: Dict) -> str:
+        """Garoonの施設名をカンマ区切りで返す（施設なしは空文字）"""
+        names = [f.get("name", "") for f in event.get("facilities") or []]
+        return ", ".join(n for n in names if n)
+
+    @staticmethod
     def get_garoon_updated_at(event: Dict) -> str:
         return event.get("updatedAt", event.get("createdAt", ""))
     
@@ -836,6 +848,9 @@ class GaroonToGoogleSync:
                 google_id = mapping['google_id']
                 if self._is_newer(garoon_updated, mapping.get('garoon_updated_at', '')):
                     self._update_google_from_garoon(event, google_id)
+                elif self._location_outdated(event, google_by_id.get(google_id)):
+                    # 施設対応前に同期済みの予定は updatedAt が変わらないため、場所の差分で更新
+                    self._update_google_from_garoon(event, google_id)
             else:
                 # 新規 → Googleに追加
                 self._add_to_google(event)
@@ -908,6 +923,11 @@ class GaroonToGoogleSync:
         else:
             self.stats['errors'] += 1
     
+    def _location_outdated(self, garoon_event, google_event) -> bool:
+        if not google_event:
+            return False
+        return EventConverter.get_garoon_location(garoon_event) != (google_event.get("location") or "")
+
     def _is_newer(self, dt1: str, dt2: str) -> bool:
         if not dt1:
             return False
@@ -961,7 +981,7 @@ class SyncApp:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("Garoon → Google Calendar 同期ツール")
+        self.root.title(f"Garoon → Google Calendar 同期ツール v{APP_VERSION}")
         self.root.geometry("650x960")
         self.root.minsize(600, 760)
         self.root.resizable(True, True)
@@ -1663,7 +1683,7 @@ def run_auto_sync(silent=False):
     db = None
     try:
         log("=" * 50)
-        log("🚀 自動同期開始")
+        log(f"🚀 自動同期開始 (v{APP_VERSION})")
 
         # 設定を読み込み
         config_manager = ConfigManager(CONFIG_FILE)
