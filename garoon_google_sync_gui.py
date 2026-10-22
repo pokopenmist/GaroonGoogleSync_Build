@@ -33,7 +33,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ============================================
 # 定数
 # ============================================
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 GAROON_SUBDOMAIN = "mrh-garoon"  # Garoonサブドメイン（固定）
 

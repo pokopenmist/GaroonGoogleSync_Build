@@ -101,7 +101,7 @@ class TestFacilityBackfill(unittest.TestCase):
 
 class TestAppVersion(unittest.TestCase):
     def test_app_version(self):
-        self.assertEqual(APP_VERSION, "2.1.0")
+        self.assertEqual(APP_VERSION, "2.1.1")
 
 
 if __name__ == "__main__":
