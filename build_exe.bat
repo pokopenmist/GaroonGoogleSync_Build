@@ -19,18 +19,23 @@ call venv\Scripts\activate.bat
 
 echo.
 echo Step 2: Upgrading pip...
-python -m pip install --upgrade pip
+rem truststore: verify the corporate proxy certificate via the Windows certificate store
+python -m pip install --use-feature=truststore --upgrade pip
 
 echo.
 echo Step 3: Installing required libraries...
-pip install requests
-pip install google-auth-oauthlib
-pip install python-dateutil
-pip install pyinstaller
+python -m pip install --use-feature=truststore requests google-auth-oauthlib python-dateutil pyinstaller
+if errorlevel 1 (
+    echo ERROR: Failed to install libraries
+    call deactivate
+    pause
+    exit /b 1
+)
 
 echo.
 echo Step 4: Building EXE (onedir / UPX disabled)...
-pyinstaller GaroonGoogleSync.spec
+if exist dist\GaroonGoogleSync rmdir /s /q dist\GaroonGoogleSync
+pyinstaller --noconfirm GaroonGoogleSync.spec
 
 echo.
 echo Step 5: Checking build result...
