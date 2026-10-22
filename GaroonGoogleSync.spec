@@ -9,7 +9,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['googleapiclient', 'httplib2', 'google.api_core'],
+    # 実行時に読み込まれないモジュール（サイズ削減）。
+    # cryptography は google.auth.crypt が必須importしているため除外不可。
+    excludes=['googleapiclient', 'httplib2', 'google.api_core',
+              'setuptools', 'pkg_resources', 'distutils', 'packaging',
+              'multiprocessing', 'unittest', 'pydoc', 'pydoc_data'],
     noarchive=False,
     optimize=0,
 )

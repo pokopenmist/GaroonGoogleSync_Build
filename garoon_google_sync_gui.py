@@ -25,8 +25,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from typing import Optional, Dict, List, Any
 
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
+# google.auth / google_auth_oauthlib は読み込みに時間がかかるため、使う関数内でimportする
 
 # SSL証明書検証エラーの警告を抑制（社内プロキシ対応）
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -365,6 +364,8 @@ class GoogleCalendarClient:
             raise ValueError(f"カレンダー '{calendar_name}' が見つかりません")
 
     def _get_credentials(self):
+        from google.auth.transport.requests import Request
+        from google_auth_oauthlib.flow import InstalledAppFlow
         creds = None
         if os.path.exists(TOKEN_FILE):
             with open(TOKEN_FILE, 'rb') as f:
@@ -390,6 +391,7 @@ class GoogleCalendarClient:
 
     def _headers(self) -> Dict:
         if self.creds.expired and self.creds.refresh_token:
+            from google.auth.transport.requests import Request
             self.creds.refresh(Request())
             with open(TOKEN_FILE, 'wb') as f:
                 pickle.dump(self.creds, f)
@@ -991,6 +993,7 @@ class SyncApp:
         self.config = self.config_manager.load()
         
         self.google_authenticated = False
+        self.google_auth_checking = False
         self.is_syncing = False
         
         self._setup_styles()
@@ -1301,45 +1304,65 @@ class SyncApp:
         self._check_google_auth()
     
     def _check_google_auth(self):
-        """Google認証状態を確認・自動リフレッシュ"""
+        """Google認証状態を確認・自動リフレッシュ
+
+        トークン更新とカレンダー一覧取得は通信を伴うため別スレッドで行い、
+        ウィンドウの表示を待たせない。結果は _apply_google_auth_result でUIに反映する。
+        """
         if not os.path.exists(TOKEN_FILE):
-            self.google_authenticated = False
-            self.google_status_var.set("❌ 未認証")
-            self.auth_button.config(text="🔑 Google認証")
+            self._apply_google_auth_result("missing", None, None)
             return
-        
+
+        self.google_auth_checking = True
+        self.google_status_var.set("⏳ 確認中...")
+        threading.Thread(target=self._check_google_auth_worker, daemon=True).start()
+
+    def _check_google_auth_worker(self):
+        status, calendar_names, calendar_error = "missing", None, None
         try:
             with open(TOKEN_FILE, "rb") as f:
                 creds = pickle.load(f)
-            
+
             if creds and creds.valid:
                 # 有効なトークンがある
-                self.google_authenticated = True
-                self.google_status_var.set("✅ 認証済み")
-                self.auth_button.config(text="🔄 再認証")
-                self._refresh_calendars()
+                status = "ok"
             elif creds and creds.expired and creds.refresh_token:
                 # 期限切れだがリフレッシュ可能
                 try:
+                    from google.auth.transport.requests import Request
                     creds.refresh(Request())
                     with open(TOKEN_FILE, "wb") as f:
                         pickle.dump(creds, f)
-                    self.google_authenticated = True
-                    self.google_status_var.set("✅ 認証済み")
-                    self.auth_button.config(text="🔄 再認証")
-                    self._refresh_calendars()
-                except Exception as e:
+                    status = "ok"
+                except Exception:
                     # リフレッシュ失敗
-                    self.google_authenticated = False
-                    self.google_status_var.set("⚠️ 要再認証")
-                    self.auth_button.config(text="🔑 Google認証")
+                    status = "expired"
             else:
-                self.google_authenticated = False
-                self.google_status_var.set("⚠️ 要再認証")
-                self.auth_button.config(text="🔑 Google認証")
+                status = "expired"
+
+            if status == "ok":
+                try:
+                    calendar_names = self._fetch_calendar_names(creds)
+                except Exception as e:
+                    calendar_error = e
         except Exception:
+            status = "missing"
+
+        self.root.after(0, self._apply_google_auth_result, status, calendar_names, calendar_error)
+
+    def _apply_google_auth_result(self, status, calendar_names, calendar_error):
+        self.google_auth_checking = False
+        if status == "ok":
+            self.google_authenticated = True
+            self.google_status_var.set("✅ 認証済み")
+            self.auth_button.config(text="🔄 再認証")
+            if calendar_error is not None:
+                self._log(f"カレンダー取得エラー: {calendar_error}")
+            elif calendar_names is not None:
+                self._set_calendar_names(calendar_names)
+        else:
             self.google_authenticated = False
-            self.google_status_var.set("❌ 未認証")
+            self.google_status_var.set("⚠️ 要再認証" if status == "expired" else "❌ 未認証")
             self.auth_button.config(text="🔑 Google認証")
     
     def _save_config(self):
@@ -1426,9 +1449,10 @@ class SyncApp:
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
             
+            from google_auth_oauthlib.flow import InstalledAppFlow
             flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
-            
+
             with open(TOKEN_FILE, "wb") as f:
                 pickle.dump(creds, f)
             
@@ -1450,23 +1474,29 @@ class SyncApp:
         try:
             with open(TOKEN_FILE, "rb") as f:
                 creds = pickle.load(f)
-            if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            resp = requests.get(
-                "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-                headers={"Authorization": f"Bearer {creds.token}"},
-                timeout=30
-            )
-            resp.raise_for_status()
-            calendar_names = [cal['summary'] for cal in resp.json().get('items', [])]
-
-            self.calendar_combo['values'] = calendar_names
-            current = self.calendar_var.get()
-            if current not in calendar_names and calendar_names:
-                self.calendar_var.set(calendar_names[0])
-
+            self._set_calendar_names(self._fetch_calendar_names(creds))
         except Exception as e:
             self._log(f"カレンダー取得エラー: {e}")
+
+    @staticmethod
+    def _fetch_calendar_names(creds) -> List[str]:
+        """カレンダー名一覧を取得（通信のみ。UIには触らないので別スレッドから呼べる）"""
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request
+            creds.refresh(Request())
+        resp = requests.get(
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            headers={"Authorization": f"Bearer {creds.token}"},
+            timeout=30
+        )
+        resp.raise_for_status()
+        return [cal['summary'] for cal in resp.json().get('items', [])]
+
+    def _set_calendar_names(self, calendar_names: List[str]):
+        self.calendar_combo['values'] = calendar_names
+        current = self.calendar_var.get()
+        if current not in calendar_names and calendar_names:
+            self.calendar_var.set(calendar_names[0])
     
     def _create_calendar(self):
         """新しいGoogleカレンダーを作成して選択状態にする（重複チェックあり）"""
@@ -1488,6 +1518,7 @@ class SyncApp:
             with open(TOKEN_FILE, "rb") as f:
                 creds = pickle.load(f)
             if creds.expired and creds.refresh_token:
+                from google.auth.transport.requests import Request
                 creds.refresh(Request())
 
             headers = {"Authorization": f"Bearer {creds.token}"}
@@ -1540,10 +1571,14 @@ class SyncApp:
             messagebox.showerror("エラー", "Garoonの設定を入力してください")
             return
         
+        if self.google_auth_checking:
+            messagebox.showinfo("確認中", "Google認証を確認中です。少し待ってから実行してください")
+            return
+
         if not self.google_authenticated:
             messagebox.showerror("エラー", "Google認証を行ってください")
             return
-        
+
         if not self.calendar_var.get():
             messagebox.showerror("エラー", "カレンダーを選択してください")
             return
